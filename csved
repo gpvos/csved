@@ -1,0 +1,78 @@
+#!/usr/bin/perl -w
+#
+# csved - apply a Perl expression to all records of a CSV file
+#
+# Copyright (c) 2003 Gerben Vos. All rights reserved.
+# This program is free software; you can redistribute it and/or
+# modify it under the same terms as Perl 5.8.0.
+#
+# Run without arguments for usage information.
+#
+# Requires the Text::CSV_XS module by Jochen Wiedmann and Alan Citterman,
+# available from http://www.cpan.org/ .
+
+use strict 'vars', 'refs';
+use Text::CSV_XS;
+use IO::Handle;
+
+my $silent = 0;
+my $sep = ',';
+my $quote = '"';
+my $escape = '"';
+
+my $progname;
+($progname = $0) =~ s#.*/##;
+
+my $usage = <<USAGE;
+Usage: $progname [-n] [-F sepchar] [-Q quotechar] [-E escapechar] expr [file...]
+Apply a Perl expression to all records of a CSV file.
+
+-n	suppress printing
+-F	set the character that separates fields (default: comma)
+-Q	set the character for quoting fields that contain a sepchar or
+		end-of-line (default: double quote)
+-E	set the character for escaping a quotechar (default: double quote)
+
+expr should be a Perl expression modifying the \@F array.
+Results are sent to the standard output.
+You can use next (to suppress printing), last and redo in expr.
+Works with binary files (for example, with embedded newlines).
+Records containing column names do not get special treatment.
+
+Uses the Text::CSV_XS module by Jochen Wiedmann and Alan Citterman, with thanks.
+USAGE
+
+while (@ARGV > 0 and $ARGV[0] =~ m{^-}) {
+	my $opt = shift;
+	$silent = 1, next if $opt eq '-n';
+	$sep = shift, next if $opt eq '-F';
+	$quote = shift, next if $opt eq '-Q';
+	$escape = shift, next if $opt eq '-E';
+	die $usage;
+}
+
+die $usage unless @ARGV > 0;
+
+my $expr = shift;
+
+my $csv = Text::CSV_XS->new({ sep_char => $sep, quote_char => $quote,
+			      escape_char => $escape, binary => 1,
+			      eol => "\n" });
+
+unshift(@ARGV, '-') unless @ARGV;
+
+while ($ARGV = shift) {
+	open(IN, $ARGV);
+	my $fields;
+	while ($fields = $csv->getline(\*main::IN) and @$fields) {
+		my(@F) = @$fields;
+		# This means you can use next, last, and redo in expr
+		# without excessive noise. Also turn off strictness.
+		no warnings "exiting";
+		no strict;
+		eval $expr;
+		die $@ if $@;
+		$csv->print(STDOUT, \@F) unless $silent;
+	}
+}
+
